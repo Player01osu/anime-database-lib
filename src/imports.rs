@@ -13,15 +13,6 @@ pub const IMPORTS: &str = r#"
         PRIMARY KEY (anime)
     );
 
-    CREATE TABLE IF NOT EXISTS location (
-        location TEXT PRIMARY KEY NOT NULL,
-        anime TEXT NOT NULL,
-
-        CONSTRAINT fk_anime
-        FOREIGN KEY (anime)
-        REFERENCES anime (anime)
-    );
-
     CREATE TABLE IF NOT EXISTS episode (
         path TEXT PRIMARY KEY UNIQUE NOT NULL,
         anime TEXT NOT NULL,

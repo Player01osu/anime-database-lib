@@ -11,16 +11,14 @@ lazy_static::lazy_static! {
     Regex::new(r#".*OVA.*\.|NCED.*? |NCOP.*? |(-|_| )(ED|OP|SP|no-credit_opening|no-credit_ending).*?(-|_| )"#).unwrap();
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Ord, Eq)]
 pub enum Episode {
     Numbered {
         season: usize,
         episode: usize,
-        filepath: String,
     },
     Special {
         filename: String,
-        filepath: String,
     },
 }
 
@@ -72,7 +70,6 @@ impl FromStr for Episode {
         };
         if REG_SPECIAL.is_match(path) {
             return Ok(Self::Special {
-                filepath: path.to_string(),
                 filename: filename(),
             });
         }
@@ -90,12 +87,10 @@ impl FromStr for Episode {
                 return Ok(Self::Numbered {
                     season,
                     episode,
-                    filepath: path.to_string(),
                 });
             }
             None => {
                 return Ok(Self::Special {
-                    filepath: path.to_string(),
                     filename: filename(),
                 })
             }
@@ -111,12 +106,10 @@ mod tests {
         let a = Episode::Numbered {
             season: 1,
             episode: 1,
-            filepath: String::from("abc"),
         };
         let b = Episode::Numbered {
             season: 1,
             episode: 2,
-            filepath: String::from("abc"),
         };
         assert!(a < b);
     }
@@ -126,12 +119,10 @@ mod tests {
         let a = Episode::Numbered {
             season: 1,
             episode: 2,
-            filepath: String::from("abc"),
         };
         let b = Episode::Numbered {
             season: 2,
             episode: 1,
-            filepath: String::from("abc"),
         };
         assert!(a < b);
     }
@@ -139,13 +130,11 @@ mod tests {
     #[test]
     fn episode_sort_2() {
         let a = Episode::Special {
-            filepath: String::from("abc"),
             filename: String::from("abc"),
         };
         let b = Episode::Numbered {
             season: 2,
             episode: 1,
-            filepath: String::from("abc"),
         };
         assert!(a < b);
     }
@@ -155,10 +144,8 @@ mod tests {
         let a = Episode::Numbered {
             season: 2,
             episode: 1,
-            filepath: String::from("abc"),
         };
         let b = Episode::Special {
-            filepath: String::from("abc"),
             filename: String::from("abc"),
         };
         assert!(a > b);
@@ -171,7 +158,6 @@ mod tests {
             Ok(Episode::Numbered {
                 season: 1,
                 episode: 24,
-                filepath: filename.clone()
             }),
             Episode::from_str(&filename)
         );
@@ -186,7 +172,6 @@ mod tests {
             Ok(Episode::Numbered {
                 season: 1,
                 episode: 4,
-                filepath: filename.clone()
             }),
             Episode::from_str(&filename)
         );
@@ -199,7 +184,6 @@ mod tests {
             Ok(Episode::Numbered {
                 season: 1,
                 episode: 12,
-                filepath: filename.clone()
             }),
             Episode::from_str(&filename)
         );
@@ -210,7 +194,6 @@ mod tests {
         let filename = r"[Arid] Sound! Euphonium - Creditless OP [D04F5D1D].mkv".to_string();
         assert_eq!(
             Ok(Episode::Special {
-                filepath: filename.clone(),
                 filename: filename.clone()
             }),
             Episode::from_str(&filename)
