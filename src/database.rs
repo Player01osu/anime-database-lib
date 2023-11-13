@@ -1,5 +1,6 @@
 use rusqlite::{params, Connection};
 use std::{
+    cmp::Reverse,
     collections::{BTreeMap, BinaryHeap},
     fs,
     str::FromStr,
@@ -127,7 +128,7 @@ impl Database {
         }
     }
 
-    pub fn update_watch(&mut self, directory: &str, watched: Episode) {
+    pub fn update_watched(&mut self, directory: &str, watched: Episode) {
         let (season, episode) = match watched {
             Episode::Numbered {
                 season, episode, ..
@@ -210,17 +211,17 @@ impl Database {
 
         let mut heap = anime_stmt
             .query_map([], |rows| {
-                Ok((rows.get_unwrap(0), rows.get_unwrap(1)))
+                Ok(Reverse((rows.get_unwrap(0), rows.get_unwrap(1))))
             })
             .unwrap()
             .filter_map(|rows| rows.ok())
-            .collect::<BinaryHeap<(usize, String)>>();
+            .collect::<BinaryHeap<Reverse<(Option<usize>, String)>>>();
 
         // TODO: use into_iter_sorted when it gets stabilized.
         //
         // https://github.com/rust-lang/rust/issues/59278
         let mut vec = vec![];
-        while let Some((_, anime)) = heap.pop() {
+        while let Some(Reverse((_, anime))) = heap.pop() {
             vec.push(anime);
         }
         vec
@@ -250,6 +251,7 @@ impl Database {
         }
     }
 
+    /// Gets current episode of directory in (season, episode) form.
     pub fn current_episode(&self, directory: &str) -> (usize, usize) {
         let query = r#"
         SELECT (current_season, current_episode)
@@ -266,20 +268,26 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BinaryHeap;
+    use std::{cmp::Reverse, collections::BinaryHeap};
 
     #[test]
     fn heap_test() {
         let mut heap = BinaryHeap::new();
-        heap.push((400, "a"));
-        heap.push((400, "b"));
-        heap.push((400, "c"));
-        heap.push((10, "d"));
-        heap.push((300, "e"));
+        heap.push(Reverse((400, "a")));
+        heap.push(Reverse((400, "b")));
+        heap.push(Reverse((400, "c")));
+        heap.push(Reverse((10, "d")));
+        heap.push(Reverse((300, "e")));
 
         assert_eq!(
             heap.into_sorted_vec().as_slice(),
-            [(10, "d"), (300, "e"), (400, "a"), (400, "b"), (400, "c")]
+            [
+                Reverse((400, "c")),
+                Reverse((400, "b")),
+                Reverse((400, "a")),
+                Reverse((300, "e")),
+                Reverse((10, "d"))
+            ]
         );
     }
 }
