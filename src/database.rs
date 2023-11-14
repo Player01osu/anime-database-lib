@@ -162,6 +162,7 @@ impl Database {
             )
             .unwrap();
 
+        // TODO: Double query into same table.
         let mut filepath_stmt = self
             .connection
             .prepare_cached(
@@ -182,8 +183,8 @@ impl Database {
                         vec![rows.get_unwrap(0)].into(),
                     )),
                     None => {
-                        let season = rows.get_unwrap(2);
                         let episode = rows.get_unwrap(1);
+                        let season = rows.get_unwrap(2);
                         let filepaths = filepath_stmt
                             .query_map(params![season, episode], |rows| Ok(rows.get_unwrap(0)))
                             .unwrap()
@@ -244,7 +245,7 @@ impl Database {
             Some(episode)
         } else if let Some(episode) = get_episode(season + 1, 0) {
             Some(episode)
-        } else if let Some(episode) = get_episode(season, 0) {
+        } else if let Some(episode) = get_episode(season + 1, 1) {
             Some(episode)
         } else {
             None
