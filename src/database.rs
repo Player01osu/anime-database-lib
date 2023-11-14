@@ -150,7 +150,7 @@ impl Database {
             .unwrap();
     }
 
-    pub fn episodes(&mut self, directory: &str) -> BTreeMap<Episode, Box<[String]>> {
+    pub fn episodes(&mut self, directory: &str) -> BTreeMap<Episode, Vec<String>> {
         let mut episode_stmt = self
             .connection
             .prepare_cached(
@@ -162,44 +162,32 @@ impl Database {
             )
             .unwrap();
 
-        // TODO: Double query into same table.
-        let mut filepath_stmt = self
-            .connection
-            .prepare_cached(
-                r#"
-            SELECT (path)
-            FROM episode
-            WHERE season='?1' AND episode='?2';
-            "#,
-            )
-            .unwrap();
-
         episode_stmt
             .query_map(params![directory], |rows| {
+                let filepath: String = rows.get_unwrap(0);
                 match rows.get_unwrap(3) {
                     // Special
                     Some(filename) => Ok((
                         Episode::Special { filename },
-                        vec![rows.get_unwrap(0)].into(),
+                        filepath,
                     )),
                     None => {
                         let episode = rows.get_unwrap(1);
                         let season = rows.get_unwrap(2);
-                        let filepaths = filepath_stmt
-                            .query_map(params![season, episode], |rows| Ok(rows.get_unwrap(0)))
-                            .unwrap()
-                            .filter_map(|rows| rows.ok())
-                            .collect::<Box<[String]>>();
-                        Ok((Episode::Numbered { season, episode }, filepaths))
+                        Ok((Episode::Numbered { season, episode }, filepath))
                     }
                 }
             })
             .unwrap()
             .filter_map(|rows| rows.ok())
-            .collect::<BTreeMap<Episode, Box<[String]>>>()
+            .fold(BTreeMap::new(), |mut acc, (k, v)| {
+                // TODO: Remove clone
+                acc.entry(k).and_modify(|list| list.push(v.clone())).or_insert(vec![v]);
+                acc
+            })
     }
 
-    pub fn directories(&self) -> Vec<String> {
+    pub fn directories(&self) -> Box<[String]> {
         let mut anime_stmt = self
             .connection
             .prepare_cached(
@@ -225,7 +213,7 @@ impl Database {
         while let Some(Reverse((_, anime))) = heap.pop() {
             vec.push(anime);
         }
-        vec
+        vec.into()
     }
 
     pub fn next_episode<'a>(
@@ -269,7 +257,7 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use std::{cmp::Reverse, collections::BinaryHeap};
+    use std::{cmp::Reverse, collections::{BinaryHeap, BTreeMap}};
 
     #[test]
     fn heap_test() {
@@ -290,5 +278,14 @@ mod tests {
                 Reverse((10, "d"))
             ]
         );
+    }
+
+    #[test]
+    fn btree_test() {
+        let btree = [("hello", 20), ("hi", 5), ("hello", 1)].into_iter().fold(BTreeMap::new(), |mut acc, (k, v)| {
+            acc.entry(k).and_modify(|list: &mut Vec<usize>| list.push(v)).or_insert(vec![v]);
+            acc
+        });
+        assert_eq!(BTreeMap::from([("hello", vec![20, 1]), ("hi", vec![5])]), btree);
     }
 }
