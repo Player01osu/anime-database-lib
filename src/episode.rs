@@ -9,7 +9,7 @@ lazy_static::lazy_static! {
     Regex::new(r#".*OVA.*\.|NCED.*? |NCOP.*? |(-|_| )(ED|OP|SP|no-credit_opening|no-credit_ending).*?(-|_| )"#).unwrap();
 }
 
-#[derive(Debug, PartialEq, Ord, Eq)]
+#[derive(Debug, PartialEq, Ord, Eq, Clone)]
 pub enum Episode {
     Numbered { season: usize, episode: usize },
     Special { filename: String },
