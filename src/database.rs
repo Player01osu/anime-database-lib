@@ -180,6 +180,7 @@ impl Database {
         Ok(())
     }
 
+    /// Prefer `.update_watched` because it checks if episode exists in episode_map.
     pub unsafe fn update_watched_unchecked(&self, anime: &str, watched: Episode) -> Result<usize> {
         let (season, episode) = match watched {
             Episode::Numbered {
