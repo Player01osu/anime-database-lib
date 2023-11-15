@@ -151,7 +151,7 @@ impl Database {
                             .unwrap_or(false)
                 })
                 .filter_map(|dir_entry| {
-                    let episode = Episode::from_str(dir_entry.path().to_str()?).ok()?;
+                    let episode = Episode::try_from(dir_entry.path()).ok()?;
                     let mut anime_directory = dir_entry.path().parent()?;
 
                     // Walk to parent directory

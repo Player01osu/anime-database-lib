@@ -71,26 +71,20 @@ pub enum EpisodeParseError {
     InvalidFile,
     #[error("Unable to convert file to UTF-8 string")]
     UTF8,
+    #[error("Invalid episode format")]
+    InvalidFormat(String),
 }
 
 impl FromStr for Episode {
     type Err = EpisodeParseError;
-    fn from_str(path: &str) -> Result<Self, Self::Err> {
-        let filename = || {
-            Ok(Path::new(path)
-                .file_name()
-                .ok_or(Self::Err::InvalidFile)?
-                .to_str()
-                .ok_or(Self::Err::UTF8)?
-                .to_string())
-        };
-        if REG_SPECIAL.is_match(path) {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if REG_SPECIAL.is_match(s) {
             return Ok(Self::Special {
-                filename: filename()?,
+                filename: s.to_owned(),
             });
         }
 
-        match REG_EPS.captures(&REG_PARSE_OUT.replace_all(path, "#")) {
+        match REG_EPS.captures(&REG_PARSE_OUT.replace_all(s, "#")) {
             Some(caps) => {
                 let season = caps
                     .name("s")
@@ -99,15 +93,35 @@ impl FromStr for Episode {
                 let episode = caps
                     .name("e")
                     .map(|a| a.as_str().parse().expect("Capture is integer"))
-                    .unwrap_or(1);
+                    .ok_or_else(|| Self::Err::InvalidFormat(s.to_string()))?;
                 return Ok(Self::Numbered { season, episode });
             }
             None => {
                 return Ok(Self::Special {
-                    filename: filename()?,
+                    filename: s.to_string(),
                 })
             }
         }
+    }
+}
+
+impl TryFrom<&Path> for Episode {
+    type Error = EpisodeParseError;
+
+    fn try_from(path: &Path) -> Result<Self, Self::Error> {
+        let filename = path
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string();
+        Ok(filename.parse()?)
+    }
+}
+
+impl Episode {
+    pub fn from_path(path: impl AsRef<Path>) -> Result<Episode, EpisodeParseError> {
+        Episode::try_from(path.as_ref())
     }
 }
 
@@ -192,13 +206,13 @@ mod tests {
 
     #[test]
     fn episode_from_str_2() {
-        let filename = r"[Datte13] Yuyushiki - S01E12 - Uneventful Good Life.mkv".to_string();
+        let filepath = Path::new(r"[Datte13] Yuyushiki - S01E12 - Uneventful Good Life.mkv");
         assert_eq!(
             Ok(Episode::Numbered {
                 season: 1,
                 episode: 12,
             }),
-            Episode::from_str(&filename)
+            Episode::try_from(filepath)
         );
     }
 
