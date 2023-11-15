@@ -1,6 +1,5 @@
 use rusqlite::{params, Connection};
 use std::{
-    cmp::Reverse,
     collections::{BTreeMap, BinaryHeap},
     fs,
     str::FromStr,
@@ -15,6 +14,23 @@ pub struct Database {
     path: String,
     anime_directory: Vec<String>,
     connection: Connection,
+}
+
+// Comparison wrapper for time and title.
+//
+// Sort by recently watched, otherwise, sort by title.
+#[derive(PartialEq, Eq, Ord, Debug)]
+struct TimeTitle((Option<usize>, String));
+
+impl PartialOrd for TimeTitle {
+    fn partial_cmp(&self, TimeTitle((time_b, title_b)): &Self) -> Option<std::cmp::Ordering> {
+        let TimeTitle((time_a, title_a)) = self;
+        if time_a.eq(time_b) {
+            Some(title_a.cmp(&title_b))
+        } else {
+            Some(time_b.cmp(&time_a))
+        }
+    }
 }
 
 impl Database {
@@ -167,10 +183,7 @@ impl Database {
                 let filepath: String = rows.get_unwrap(0);
                 match rows.get_unwrap(3) {
                     // Special
-                    Some(filename) => Ok((
-                        Episode::Special { filename },
-                        filepath,
-                    )),
+                    Some(filename) => Ok((Episode::Special { filename }, filepath)),
                     None => {
                         let episode = rows.get_unwrap(1);
                         let season = rows.get_unwrap(2);
@@ -182,7 +195,9 @@ impl Database {
             .filter_map(|rows| rows.ok())
             .fold(BTreeMap::new(), |mut acc, (k, v)| {
                 // TODO: Remove clone
-                acc.entry(k).and_modify(|list| list.push(v.clone())).or_insert(vec![v]);
+                acc.entry(k)
+                    .and_modify(|list| list.push(v.clone()))
+                    .or_insert(vec![v]);
                 acc
             })
     }
@@ -200,17 +215,17 @@ impl Database {
 
         let mut heap = anime_stmt
             .query_map([], |rows| {
-                Ok(Reverse((rows.get_unwrap(0), rows.get_unwrap(1))))
+                Ok(TimeTitle((rows.get_unwrap(0), rows.get_unwrap(1))))
             })
             .unwrap()
             .filter_map(|rows| rows.ok())
-            .collect::<BinaryHeap<Reverse<(Option<usize>, String)>>>();
+            .collect::<BinaryHeap<TimeTitle>>();
 
         // TODO: use into_iter_sorted when it gets stabilized.
         //
         // https://github.com/rust-lang/rust/issues/59278
         let mut vec = vec![];
-        while let Some(Reverse((_, anime))) = heap.pop() {
+        while let Some(TimeTitle((_, anime))) = heap.pop() {
             vec.push(anime);
         }
         vec.into()
@@ -257,35 +272,51 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use std::{cmp::Reverse, collections::{BinaryHeap, BTreeMap}};
+    use std::collections::{BTreeMap, BinaryHeap};
+
+    use crate::database::TimeTitle;
 
     #[test]
     fn heap_test() {
         let mut heap = BinaryHeap::new();
-        heap.push(Reverse((400, "a")));
-        heap.push(Reverse((400, "b")));
-        heap.push(Reverse((400, "c")));
-        heap.push(Reverse((10, "d")));
-        heap.push(Reverse((300, "e")));
+        heap.push(TimeTitle((None, "a".to_string())));
+        heap.push(TimeTitle((Some(300), "e".to_string())));
+        heap.push(TimeTitle((None, "c".to_string())));
+        heap.push(TimeTitle((Some(400), "c".to_string())));
+        heap.push(TimeTitle((Some(400), "b".to_string())));
+        heap.push(TimeTitle((None, "b".to_string())));
+        heap.push(TimeTitle((Some(10), "d".to_string())));
+        heap.push(TimeTitle((Some(400), "a".to_string())));
 
         assert_eq!(
             heap.into_sorted_vec().as_slice(),
             [
-                Reverse((400, "c")),
-                Reverse((400, "b")),
-                Reverse((400, "a")),
-                Reverse((300, "e")),
-                Reverse((10, "d"))
+                TimeTitle((Some(400), "a".to_string())),
+                TimeTitle((Some(400), "b".to_string())),
+                TimeTitle((Some(400), "c".to_string())),
+                TimeTitle((Some(300), "e".to_string())),
+                TimeTitle((Some(10), "d".to_string())),
+                TimeTitle((None, "a".to_string())),
+                TimeTitle((None, "b".to_string())),
+                TimeTitle((None, "c".to_string())),
             ]
         );
     }
 
     #[test]
     fn btree_test() {
-        let btree = [("hello", 20), ("hi", 5), ("hello", 1)].into_iter().fold(BTreeMap::new(), |mut acc, (k, v)| {
-            acc.entry(k).and_modify(|list: &mut Vec<usize>| list.push(v)).or_insert(vec![v]);
-            acc
-        });
-        assert_eq!(BTreeMap::from([("hello", vec![20, 1]), ("hi", vec![5])]), btree);
+        let btree = [("hello", 20), ("hi", 5), ("hello", 1)].into_iter().fold(
+            BTreeMap::new(),
+            |mut acc, (k, v)| {
+                acc.entry(k)
+                    .and_modify(|list: &mut Vec<usize>| list.push(v))
+                    .or_insert(vec![v]);
+                acc
+            },
+        );
+        assert_eq!(
+            BTreeMap::from([("hello", vec![20, 1]), ("hi", vec![5])]),
+            btree
+        );
     }
 }
