@@ -3,7 +3,7 @@ use std::{
     collections::{BTreeMap, BinaryHeap},
     fs,
     str::FromStr,
-    thread::{self, JoinHandle},
+    thread::{self, JoinHandle}, time::SystemTime,
 };
 
 use rusqlite::{params, Connection};
@@ -182,6 +182,7 @@ impl Database {
 
     /// Prefer `.update_watched` because it checks if episode exists in episode_map.
     pub unsafe fn update_watched_unchecked(&self, anime: &str, watched: Episode) -> Result<usize> {
+        let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
         let (season, episode) = match watched {
             Episode::Numbered {
                 season, episode, ..
@@ -194,13 +195,13 @@ impl Database {
 
         let query = r#"
             UPDATE anime
-            SET current_season=?1, current_episode=?2
-            WHERE name=?3;
+            SET current_season=?1, current_episode=?2, last_watched=?3
+            WHERE name=?4;
         "#;
 
         Ok(self
             .connection
-            .execute(query, params![season, episode, anime])?)
+            .execute(query, params![season, episode, timestamp, anime])?)
     }
 
     pub fn update_watched(
