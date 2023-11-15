@@ -144,7 +144,7 @@ impl Database {
         }
     }
 
-    pub fn update_watched(&mut self, directory: &str, watched: Episode) {
+    pub fn update_watched(&mut self, anime: &str, watched: Episode) {
         let (season, episode) = match watched {
             Episode::Numbered {
                 season, episode, ..
@@ -162,11 +162,11 @@ impl Database {
         "#;
 
         self.connection
-            .execute(query, params![season, episode, directory])
+            .execute(query, params![season, episode, anime])
             .unwrap();
     }
 
-    pub fn episodes(&mut self, directory: &str) -> BTreeMap<Episode, Vec<String>> {
+    pub fn episodes(&mut self, anime: &str) -> BTreeMap<Episode, Vec<String>> {
         let mut episode_stmt = self
             .connection
             .prepare_cached(
@@ -179,7 +179,7 @@ impl Database {
             .unwrap();
 
         episode_stmt
-            .query_map(params![directory], |rows| {
+            .query_map(params![anime], |rows| {
                 let filepath: String = rows.get_unwrap(0);
                 match rows.get_unwrap(3) {
                     // Special
@@ -233,10 +233,10 @@ impl Database {
 
     pub fn next_episode<'a>(
         &self,
-        directory: &str,
+        anime: &str,
         episodes: &'a BTreeMap<Episode, Box<[String]>>,
     ) -> Option<&'a Episode> {
-        let (season, episode) = self.current_episode(directory);
+        let (season, episode) = self.current_episode(anime);
 
         let get_episode = |season, episode| {
             episodes
@@ -256,14 +256,14 @@ impl Database {
     }
 
     /// Gets current episode of directory in (season, episode) form.
-    pub fn current_episode(&self, directory: &str) -> (usize, usize) {
+    pub fn current_episode(&self, anime: &str) -> (usize, usize) {
         let query = r#"
         SELECT (current_season, current_episode)
         FROM anime
         WHERE anime='?1'
         "#;
         self.connection
-            .query_row(query, [directory], |rows| {
+            .query_row(query, [anime], |rows| {
                 Ok((rows.get_unwrap(0), rows.get_unwrap(1)))
             })
             .unwrap()
