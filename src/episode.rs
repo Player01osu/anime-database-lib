@@ -1,10 +1,7 @@
-use std::{
-    path::Path,
-    str::FromStr
-};
+use std::{fmt::Display, path::Path, str::FromStr};
 
-use thiserror::Error;
 use regex::Regex;
+use thiserror::Error;
 lazy_static::lazy_static! {
     static ref REG_EPS: Regex = Regex::new(r#"(?:(?:^|S|s)(?P<s>\d{2}))?(?:_|x|E|e|EP|ep| )(?P<e>\d{1,2})(?:.bits|_| |-|\.|v|$)"#).unwrap();
     static ref REG_PARSE_OUT: Regex = Regex::new(r#"(x256|x265|\d{4}|\d{3})|10.bits"#).unwrap();
@@ -14,13 +11,23 @@ lazy_static::lazy_static! {
 
 #[derive(Debug, PartialEq, Ord, Eq)]
 pub enum Episode {
-    Numbered {
-        season: usize,
-        episode: usize,
-    },
-    Special {
-        filename: String,
-    },
+    Numbered { season: usize, episode: usize },
+    Special { filename: String },
+}
+
+impl Display for Episode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Numbered { season, episode } => write!(f, "S{season:02} E{episode:02}"),
+            Self::Special { filename } => filename.fmt(f),
+        }
+    }
+}
+
+impl From<(usize, usize)> for Episode {
+    fn from((season, episode): (usize, usize)) -> Self {
+        Self::Numbered { season, episode }
+    }
 }
 
 impl PartialOrd for Episode {
@@ -93,10 +100,7 @@ impl FromStr for Episode {
                     .name("e")
                     .map(|a| a.as_str().parse().expect("Capture is integer"))
                     .unwrap_or(1);
-                return Ok(Self::Numbered {
-                    season,
-                    episode,
-                });
+                return Ok(Self::Numbered { season, episode });
             }
             None => {
                 return Ok(Self::Special {

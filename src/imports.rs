@@ -5,12 +5,12 @@ pub const IMPORTS: &str = r#"
     PRAGMA mmap_size = 30000000000;
 
     CREATE TABLE IF NOT EXISTS anime (
-        anime TEXT NOT NULL,
+        name TEXT NOT NULL,
         current_episode INT,
         current_season INT,
         last_watched INT,
 
-        PRIMARY KEY (anime)
+        PRIMARY KEY (name)
     );
 
     CREATE TABLE IF NOT EXISTS episode (
@@ -22,11 +22,11 @@ pub const IMPORTS: &str = r#"
 
         CONSTRAINT fk_anime
         FOREIGN KEY (anime)
-        REFERENCES anime (anime)
+        REFERENCES anime (name)
     );
 
     CREATE UNIQUE INDEX IF NOT EXISTS filename_idx
-    ON anime(anime);
+    ON anime(name);
 
     CREATE INDEX IF NOT EXISTS episode_season_idx
     ON episode(episode, season);
