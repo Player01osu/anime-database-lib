@@ -1,8 +1,7 @@
 use crate::{episode::Episode, imports::IMPORTS};
 use std::{
-    collections::{BTreeMap, BinaryHeap},
+    collections::BTreeMap,
     fs,
-    str::FromStr,
     thread::{self, JoinHandle}, time::SystemTime,
 };
 
@@ -18,23 +17,6 @@ pub struct Database {
 }
 
 pub type EpisodeMap = BTreeMap<Episode, Vec<String>>;
-
-// Comparison wrapper for time and title.
-//
-// Sort by recently watched, otherwise, sort by title.
-#[derive(PartialEq, Eq, Ord, Debug)]
-struct TimeTitle((Option<usize>, String));
-
-impl PartialOrd for TimeTitle {
-    fn partial_cmp(&self, TimeTitle((time_b, title_b)): &Self) -> Option<std::cmp::Ordering> {
-        let TimeTitle((time_a, title_a)) = self;
-        if time_a.eq(time_b) {
-            Some(title_a.cmp(&title_b))
-        } else {
-            Some(time_b.cmp(&time_a))
-        }
-    }
-}
 
 #[derive(Debug, Error)]
 pub enum InvalidEpisodeError {
@@ -256,25 +238,18 @@ impl Database {
         let mut anime_stmt = self.connection.prepare_cached(
             r#"
         SELECT last_watched, name
-        FROM anime;
+        FROM anime
+        ORDER BY last_watched DESC;
         "#,
         )?;
 
-        let mut heap = anime_stmt
+        let list = anime_stmt
             .query_map([], |rows| {
-                Ok(TimeTitle((rows.get_unwrap(0), rows.get_unwrap(1))))
+                Ok(rows.get_unwrap(1))
             })?
             .filter_map(|rows| rows.ok())
-            .collect::<BinaryHeap<TimeTitle>>();
-
-        // TODO: use into_iter_sorted when it gets stabilized.
-        //
-        // https://github.com/rust-lang/rust/issues/59278
-        let mut vec = vec![];
-        while let Some(TimeTitle((_, anime))) = heap.pop() {
-            vec.push(anime);
-        }
-        Ok(vec.into())
+            .collect::<Box<[String]>>();
+        Ok(list)
     }
 
     pub fn next_episode<'a>(
@@ -323,36 +298,7 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{BTreeMap, BinaryHeap};
-
-    use crate::database::TimeTitle;
-
-    #[test]
-    fn heap_test() {
-        let mut heap = BinaryHeap::new();
-        heap.push(TimeTitle((None, "a".to_string())));
-        heap.push(TimeTitle((Some(300), "e".to_string())));
-        heap.push(TimeTitle((None, "c".to_string())));
-        heap.push(TimeTitle((Some(400), "c".to_string())));
-        heap.push(TimeTitle((Some(400), "b".to_string())));
-        heap.push(TimeTitle((None, "b".to_string())));
-        heap.push(TimeTitle((Some(10), "d".to_string())));
-        heap.push(TimeTitle((Some(400), "a".to_string())));
-
-        assert_eq!(
-            heap.into_sorted_vec().as_slice(),
-            [
-                TimeTitle((Some(400), "a".to_string())),
-                TimeTitle((Some(400), "b".to_string())),
-                TimeTitle((Some(400), "c".to_string())),
-                TimeTitle((Some(300), "e".to_string())),
-                TimeTitle((Some(10), "d".to_string())),
-                TimeTitle((None, "a".to_string())),
-                TimeTitle((None, "b".to_string())),
-                TimeTitle((None, "c".to_string())),
-            ]
-        );
-    }
+    use std::collections::BTreeMap;
 
     #[test]
     fn btree_test() {
