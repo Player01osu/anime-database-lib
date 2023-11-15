@@ -236,8 +236,15 @@ impl Database {
         anime: &str,
         episodes: &'a BTreeMap<Episode, Box<[String]>>,
     ) -> Option<&'a Episode> {
-        let (season, episode) = self.current_episode(anime);
+        let current_episode = self.current_episode(anime);
+        self.next_episode_from_current(current_episode, episodes)
+    }
 
+    pub fn next_episode_from_current<'a>(
+        &self,
+        _current_episode @ (season, episode): (usize, usize),
+        episodes: &'a BTreeMap<Episode, Box<[String]>>,
+    ) -> Option<&'a Episode> {
         let get_episode = |season, episode| {
             episodes
                 .get_key_value(&Episode::Numbered { season, episode })
