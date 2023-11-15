@@ -11,4 +11,5 @@ lazy_static = "1.4.0"
 regex = "1.10.2"
 rusqlite = { version = "0.30.0", features = ["bundled"] }
 serde = { version = "1.0.191", features = ["derive"] }
+thiserror = "1.0.50"
 walkdir = "2.4.0"

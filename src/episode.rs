@@ -1,8 +1,9 @@
 use std::{
     path::Path,
-    str::FromStr,
+    str::FromStr
 };
 
+use thiserror::Error;
 use regex::Regex;
 lazy_static::lazy_static! {
     static ref REG_EPS: Regex = Regex::new(r#"(?:(?:^|S|s)(?P<s>\d{2}))?(?:_|x|E|e|EP|ep| )(?P<e>\d{1,2})(?:.bits|_| |-|\.|v|$)"#).unwrap();
@@ -57,20 +58,28 @@ impl PartialOrd for Episode {
     }
 }
 
+#[derive(Debug, Error, Eq, PartialEq)]
+pub enum EpisodeParseError {
+    #[error("Invalid path to episode")]
+    InvalidFile,
+    #[error("Unable to convert file to UTF-8 string")]
+    UTF8,
+}
+
 impl FromStr for Episode {
-    type Err = ();
+    type Err = EpisodeParseError;
     fn from_str(path: &str) -> Result<Self, Self::Err> {
         let filename = || {
-            Path::new(path)
+            Ok(Path::new(path)
                 .file_name()
-                .unwrap()
+                .ok_or(Self::Err::InvalidFile)?
                 .to_str()
-                .unwrap()
-                .to_string()
+                .ok_or(Self::Err::UTF8)?
+                .to_string())
         };
         if REG_SPECIAL.is_match(path) {
             return Ok(Self::Special {
-                filename: filename(),
+                filename: filename()?,
             });
         }
 
@@ -91,7 +100,7 @@ impl FromStr for Episode {
             }
             None => {
                 return Ok(Self::Special {
-                    filename: filename(),
+                    filename: filename()?,
                 })
             }
         }
