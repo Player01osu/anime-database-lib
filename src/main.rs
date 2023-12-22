@@ -11,6 +11,6 @@ fn main() {
     let anime = db.get_anime(r#"[Bulldog] Yuru Yuri S2 [BD 1080p HEVC FLAC]"#).unwrap();
     dbg!(anime.update_watched(Episode::from((1, 5)))).ok();
     dbg!(anime);
-    dbg!(db.animes().unwrap().into_iter().map(|(v, _)| v.to_owned()).collect::<Vec<String>>());
+    dbg!(db.animes().unwrap().into_iter().map(|(v, _)| v.to_owned().to_owned()).collect::<Vec<String>>());
     db.write(DATABASE_PATH).ok();
 }

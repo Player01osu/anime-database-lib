@@ -236,8 +236,8 @@ impl Database {
         Ok(())
     }
 
-    pub fn animes(&mut self) -> Result<Vec<(&String, &mut Anime)>> {
-        let mut anime_list = self.anime_map.iter_mut().collect::<Vec<(&String, &mut Anime)>>();
+    pub fn animes(&mut self) -> Result<Box<[(&String, &mut Anime)]>> {
+        let mut anime_list = self.anime_map.iter_mut().collect::<Box<[(&String, &mut Anime)]>>();
         anime_list.sort_by(|(_, a), (_, b)| b.last_watched.cmp(&a.last_watched));
 
         Ok(anime_list)
