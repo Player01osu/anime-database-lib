@@ -1,22 +1,29 @@
-use crate::{episode::Episode, imports::IMPORTS};
-use std::{
-    collections::BTreeMap,
-    fs,
-    thread::{self, JoinHandle}, time::SystemTime,
-};
+use crate::episode::Episode;
+use std::collections::btree_map::Entry;
+use std::fs::{read_dir, File};
+use std::io::{Read, Write};
+use std::{collections::BTreeMap, path::Path, time::SystemTime};
+use flexbuffers::DeserializationError;
 
-use rusqlite::{params, Connection};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use walkdir::WalkDir;
 
-#[derive(Debug)]
-pub struct Database {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Anime {
     path: String,
-    anime_directory: Vec<String>,
-    connection: Connection,
+    last_watched: u64,
+    last_updated: u64,
+    current_episode: Episode,
+    episodes: EpisodeMap,
 }
 
-pub type EpisodeMap = BTreeMap<Episode, Vec<String>>;
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Database {
+    anime_map: BTreeMap<String, Anime>,
+}
+
+pub type EpisodeMap = Vec<(Episode, Vec<String>)>;
 
 #[derive(Debug, Error)]
 pub enum InvalidEpisodeError {
@@ -27,9 +34,9 @@ pub enum InvalidEpisodeError {
 #[derive(Debug, Error)]
 pub enum DatabaseError {
     #[error("{0}")]
-    Rusqlite(rusqlite::Error),
-    #[error("{0}")]
     IO(std::io::Error),
+    #[error("{0}")]
+    Deserialization(DeserializationError),
     #[error("Invalid path to episode")]
     InvalidFile,
     #[error("Unable to convert file to UTF-8 string")]
@@ -40,236 +47,95 @@ pub enum DatabaseError {
 
 type Err = DatabaseError;
 
-impl From<rusqlite::Error> for Err {
-    fn from(v: rusqlite::Error) -> Self {
-        Self::Rusqlite(v)
-    }
-}
-
 impl From<std::io::Error> for Err {
     fn from(v: std::io::Error) -> Self {
         Self::IO(v)
     }
 }
 
+impl From<DeserializationError> for Err {
+    fn from(v: DeserializationError) -> Self {
+        Self::Deserialization(v)
+    }
+}
+
 type Result<T> = std::result::Result<T, Err>;
 
-impl Database {
-    /// Note: If database has not been created, then `.init_db()`
-    /// must be run before using.
-    pub fn new(path: impl AsRef<str>, anime_directory: Vec<impl AsRef<str>>) -> Result<Self> {
-        let path = path.as_ref().to_string();
-        let anime_directory = anime_directory
-            .iter()
-            .map(|s| s.as_ref().to_string())
-            .collect();
-        let sqlite_conn = Connection::open(&path)?;
-        Ok(Self {
-            path,
-            anime_directory,
-            connection: sqlite_conn,
-        })
-    }
+macro_rules! o_to_str {
+    ($x: expr) => {
+        $x.to_str().unwrap().to_string()
+    };
+}
 
-    pub fn init_db(&self) -> Result<()> {
-        self.connection.execute_batch(IMPORTS)?;
-        Ok(())
-    }
+fn get_time() -> u64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
 
-    pub fn threaded_update(&self) -> JoinHandle<Result<()>> {
-        let path_move = self.path.clone();
-        let anime_directory_move = self.anime_directory.clone();
-
-        thread::spawn(move || {
-            let path = path_move;
-            let anime_directory = anime_directory_move;
-            let sqlite_conn = Connection::open(&path)?;
-            let database_async = Self {
-                path,
-                anime_directory,
-                connection: sqlite_conn,
-            };
-            database_async.update()
-        })
-    }
-
-    pub fn update(&self) -> Result<()> {
-        let mut stmt_anime = self.connection.prepare_cached(
-            r#"
-            INSERT OR IGNORE INTO anime (name)
-            VALUES (?1)
-        "#,
-        )?;
-
-        let list = self
-            .anime_directory
-            .iter()
-            .filter_map(|v| fs::read_dir(v).ok())
-            .flat_map(|v| v.map(|d| d.map(|v| v.path())));
-        for i in list {
-            stmt_anime.execute(params![i?
-                .file_name()
-                .ok_or(Err::InvalidFile)?
-                .to_string_lossy(),])?;
-        }
-
-        let mut stmt = self.connection.prepare_cached(
-            r#"
-            INSERT OR IGNORE INTO episode (path, anime, episode, season, special)
-            VALUES (?1, ?2, ?3, ?4, ?5)
-            "#,
-        )?;
-        let list = self.anime_directory.iter().flat_map(|v| {
-            WalkDir::new(v)
-                .max_depth(5)
-                .min_depth(2)
-                .into_iter()
-                .filter_map(|d| Some(d.ok()?)) // Report directory not found
-                .filter(|d| {
-                    d.file_type().is_file()
-                        && d.path()
-                            .extension()
-                            .map(|e| matches!(e.to_str(), Some("mkv") | Some("mp4") | Some("ts")))
-                            .unwrap_or(false)
-                })
-                .filter_map(|dir_entry| {
-                    let episode = Episode::try_from(dir_entry.path()).ok()?;
-                    let mut anime_directory = dir_entry.path().parent()?;
-
-                    // Walk to parent directory
-                    for _ in 0..dir_entry.depth() - 2 {
-                        anime_directory = anime_directory.parent()?;
-                    }
-                    Some((
-                        dir_entry.path().to_str()?.to_owned(),
-                        anime_directory.file_name()?.to_str()?.to_owned(),
-                        episode,
-                    ))
-                })
-        });
-        for i in list {
-            match i.2 {
-                Episode::Numbered {
-                    season, episode, ..
-                } => {
-                    stmt.execute(params![i.0, i.1, episode, season, None::<String>])?;
-                }
-                Episode::Special { filename, .. } => {
-                    stmt.execute(params![i.0, i.1, None::<u32>, None::<u32>, filename.trim()])?;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Prefer `.update_watched` because it checks if episode exists in episode_map.
-    pub unsafe fn update_watched_unchecked(&self, anime: &str, watched: Episode) -> Result<usize> {
-        let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
-        let (season, episode) = match watched {
-            Episode::Numbered {
-                season, episode, ..
-            } => (season, episode),
-            Episode::Special { .. } => {
-                eprintln!("Special episode watched not implemented");
-                return Ok(0);
-            }
+impl Anime {
+    pub fn from_path(path: impl AsRef<Path>, time: u64) -> Self {
+        let path = path.as_ref();
+        let mut anime = Anime {
+            path: o_to_str!(path),
+            last_watched: 0,
+            last_updated: time,
+            current_episode: Episode::from((1, 1)),
+            episodes: Vec::new(),
         };
-
-        let query = r#"
-            UPDATE anime
-            SET current_season=?1, current_episode=?2, last_watched=?3
-            WHERE name=?4;
-        "#;
-
-        Ok(self
-            .connection
-            .execute(query, params![season, episode, timestamp, anime])?)
+        anime.update_episodes();
+        anime
     }
 
-    pub fn update_watched(
-        &self,
-        anime: &str,
-        watched: Episode,
-        episodes: &EpisodeMap,
-    ) -> Result<usize> {
-        match episodes.get(&watched) {
-            Some(_) => unsafe { self.update_watched_unchecked(anime, watched) },
-            None => Err(Err::InvalidEpisode(InvalidEpisodeError::NotExist {
-                anime: anime.to_string(),
-                episode: watched,
-            })),
+    pub(crate) fn update_episodes(&mut self) {
+        WalkDir::new(&self.path)
+            .max_depth(5)
+            .min_depth(1)
+            .into_iter()
+            .filter_map(|d| Some(d.ok()?)) // Report directory not found
+            .filter(|d| {
+                d.file_type().is_file()
+                    && d.path()
+                        .extension()
+                        .map(|e| matches!(e.to_str(), Some("mkv") | Some("mp4") | Some("ts")))
+                        .unwrap_or(false)
+            })
+            .filter_map(|dir_entry| {
+                let episode = Episode::try_from(dir_entry.path()).ok()?;
+                let path = dir_entry.path().to_str()?.to_owned();
+
+                Some((episode, path))
+            })
+            .for_each(
+                |(ep, path)| match self.episodes.iter_mut().find(|(v, _)| ep.eq(v)) {
+                    Some((_, paths)) => paths.push(path.clone()),
+                    None => self.episodes.push((ep, vec![path])),
+                },
+            );
+    }
+
+    /// Gets current episode of directory in (season, episode) form.
+    pub fn current_episode(&self) -> Episode {
+        self.current_episode.clone()
+    }
+
+    pub fn next_episode<'a>(&self) -> Result<Option<Episode>> {
+        match self.current_episode {
+            Episode::Numbered { season, episode } => Ok(self.next_episode_raw((season, episode))),
+            Episode::Special { .. } => Ok(None),
         }
-    }
-
-    pub fn episodes(&self, anime: &str) -> Result<EpisodeMap> {
-        let mut episode_stmt = self.connection.prepare_cached(
-            r#"
-            SELECT path, episode, season, special
-            FROM episode
-            WHERE anime=?1
-            "#,
-        )?;
-
-        let episode_map = episode_stmt
-            .query_map(params![anime], |rows| {
-                let filepath: String = rows.get_unwrap(0);
-                match rows.get_unwrap(3) {
-                    // Special
-                    Some(filename) => Ok((Episode::Special { filename }, filepath)),
-                    None => {
-                        let episode = rows.get_unwrap(1);
-                        let season = rows.get_unwrap(2);
-                        Ok((Episode::Numbered { season, episode }, filepath))
-                    }
-                }
-            })?
-            .filter_map(|rows| rows.ok())
-            .fold(BTreeMap::new(), |mut acc, (k, v)| {
-                // TODO: Remove clone
-                acc.entry(k)
-                    .and_modify(|list: &mut Vec<String>| list.push(v.clone()))
-                    .or_insert(vec![v]);
-                acc
-            });
-        Ok(episode_map)
-    }
-
-    pub fn animes(&self) -> Result<Box<[String]>> {
-        let mut anime_stmt = self.connection.prepare_cached(
-            r#"
-        SELECT last_watched, name
-        FROM anime
-        ORDER BY last_watched DESC;
-        "#,
-        )?;
-
-        let list = anime_stmt
-            .query_map([], |rows| {
-                Ok(rows.get_unwrap(1))
-            })?
-            .filter_map(|rows| rows.ok())
-            .collect::<Box<[String]>>();
-        Ok(list)
-    }
-
-    pub fn next_episode<'a>(
-        &self,
-        anime: &str,
-        episodes: &'a EpisodeMap,
-    ) -> Result<Option<&'a Episode>> {
-        let current_episode = self.current_episode(anime)?;
-        Ok(self.next_episode_raw(current_episode, episodes))
     }
 
     pub fn next_episode_raw<'a>(
         &self,
-        _current_episode @ (season, episode): (usize, usize),
-        episodes: &'a EpisodeMap,
-    ) -> Option<&'a Episode> {
+        _current_episode @ (season, episode): (u32, u32),
+    ) -> Option<Episode> {
         let get_episode = |season, episode| {
-            episodes
-                .get_key_value(&Episode::Numbered { season, episode })
-                .map(|v| v.0)
+            self.episodes
+                .iter()
+                .find(|(ep, _)| ep.eq(&Episode::Numbered { season, episode }))
+                .map(|v| v.0.clone())
         };
 
         if let Some(episode) = get_episode(season, episode + 1) {
@@ -283,16 +149,103 @@ impl Database {
         }
     }
 
-    /// Gets current episode of directory in (season, episode) form.
-    pub fn current_episode(&self, anime: &str) -> Result<(usize, usize)> {
-        let query = r#"
-        SELECT current_season, current_episode
-        FROM anime
-        WHERE name=?1
-        "#;
-        Ok(self.connection.query_row(query, [anime], |rows| {
-            Ok((rows.get(0).unwrap_or(1), rows.get(1).unwrap_or(1)))
-        })?)
+    pub fn episodes(&self) -> &EpisodeMap {
+        &self.episodes
+    }
+
+    /// Prefer `.update_watched` because it checks if episode exists in episode_map.
+    pub unsafe fn update_watched_unchecked(&mut self, watched: Episode) {
+        let timestamp = get_time();
+        self.last_watched = timestamp;
+        self.current_episode = watched;
+    }
+
+    pub fn update_watched(&mut self, watched: Episode) -> Result<()> {
+        match self.episodes.iter().find(|(ep, _)| watched.eq(ep)) {
+            Some(_) => Ok(unsafe { self.update_watched_unchecked(watched) }),
+            None => Err(Err::InvalidEpisode(InvalidEpisodeError::NotExist {
+                anime: self.path.to_string(),
+                episode: watched,
+            })),
+        }
+    }
+}
+
+fn dir_modified_time(path: impl AsRef<Path>) -> u64 {
+    File::open(path)
+        .unwrap()
+        .metadata()
+        .unwrap()
+        .modified()
+        .unwrap()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
+
+impl Database {
+    /// Note: If database has not been created, then `.init_db()`
+    /// must be run before using.
+    pub fn new(path: impl AsRef<str>, anime_directories: Vec<impl AsRef<str>>) -> Result<Self> {
+        let path = path.as_ref();
+        match File::open(path) {
+            Ok(mut v) => {
+                let mut slice = vec![];
+                v.read_to_end(&mut slice)?;
+                Ok(flexbuffers::from_slice::<Self>(&slice)?)
+            }
+            Err(_) => {
+                let mut db = Self {
+                    anime_map: BTreeMap::new(),
+                };
+                db.update(anime_directories);
+                Ok(db)
+            }
+        }
+    }
+
+    pub fn update(&mut self, anime_directories: Vec<impl AsRef<str>>) {
+        let time = get_time();
+        anime_directories
+            .iter()
+            .flat_map(|s| {
+                read_dir(s.as_ref())
+                    .unwrap()
+                    .filter_map(|v| v.ok())
+                    .map(|v| (o_to_str!(v.file_name()), v.path()))
+            })
+            .for_each(|(name, path)| {
+                match self.anime_map.entry(name) {
+                    Entry::Vacant(v) => {
+                        v.insert(Anime::from_path(path, time));
+                    }
+                    Entry::Occupied(mut v) => {
+                        if v.get().last_updated < dir_modified_time(path) {
+                            v.get_mut().update_episodes();
+                        }
+                    }
+                };
+            });
+    }
+
+    pub fn write(&mut self, path: impl AsRef<Path>) -> Result<()> {
+        let mut f = File::create(path)?;
+        let mut s = flexbuffers::FlexbufferSerializer::new();
+        self.serialize(&mut s).unwrap();
+        f.write_all(s.view())?;
+        Ok(())
+    }
+
+    pub fn animes(&mut self) -> Result<Vec<(&String, &mut Anime)>> {
+        let mut anime_list = self.anime_map.iter_mut().collect::<Vec<(&String, &mut Anime)>>();
+        anime_list.sort_by(|(_, a), (_, b)| b.last_watched.cmp(&a.last_watched));
+
+        Ok(anime_list)
+    }
+
+    pub fn get_anime<'a>(&'a mut self, anime: impl AsRef<str>) -> Option<&'a mut Anime> {
+        let anime = anime.as_ref().to_string();
+        self.anime_map.get_mut(&anime)
     }
 }
 

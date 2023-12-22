@@ -1,13 +1,14 @@
 [package]
 name = "anime-database-lib"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+flexbuffers = "2.0.0"
 lazy_static = "1.4.0"
 regex = "1.10.2"
-rusqlite = { version = "0.30.0", features = ["bundled"] }
+serde = { version = "1.0.193", features = ["derive"] }
 thiserror = "1.0.50"
 walkdir = "2.4.0"

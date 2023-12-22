@@ -1,6 +1,7 @@
 use std::{fmt::Display, path::Path, str::FromStr};
 
 use regex::Regex;
+use serde::{Serialize, Deserialize};
 use thiserror::Error;
 lazy_static::lazy_static! {
     static ref REG_EPS: Regex = Regex::new(r#"(?:(?:^|S|s)(?P<s>\d{2}))?(?: )?(?:_|x|E|e|EP|ep| )(?P<e>\d{1,2})(?:.bits|_| |-|\.|v|$)"#).unwrap();
@@ -9,9 +10,9 @@ lazy_static::lazy_static! {
     Regex::new(r#".*OVA.*\.|NCED.*? |NCOP.*? |(-|_| )(ED|OP|SP|no-credit_opening|no-credit_ending).*?(-|_| )"#).unwrap();
 }
 
-#[derive(Debug, PartialEq, Ord, Eq, Clone)]
+#[derive(Debug, PartialEq, Ord, Eq, Clone, Deserialize, Serialize)]
 pub enum Episode {
-    Numbered { season: usize, episode: usize },
+    Numbered { season: u32, episode: u32 },
     Special { filename: String },
 }
 
@@ -24,8 +25,8 @@ impl Display for Episode {
     }
 }
 
-impl From<(usize, usize)> for Episode {
-    fn from((season, episode): (usize, usize)) -> Self {
+impl From<(u32, u32)> for Episode {
+    fn from((season, episode): (u32, u32)) -> Self {
         Self::Numbered { season, episode }
     }
 }
