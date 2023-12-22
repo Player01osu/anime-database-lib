@@ -1,7 +1,7 @@
 use crate::episode::Episode;
 use flexbuffers::DeserializationError;
 use std::collections::btree_map::Entry;
-use std::fs::{read_dir, File};
+use std::fs::{metadata, read_dir, File};
 use std::io::{Read, Write};
 use std::{collections::BTreeMap, path::Path, time::SystemTime};
 
@@ -173,9 +173,7 @@ impl Anime {
 }
 
 fn dir_modified_time(path: impl AsRef<Path>) -> u64 {
-    File::open(path)
-        .unwrap()
-        .metadata()
+    metadata(path)
         .unwrap()
         .modified()
         .unwrap()
