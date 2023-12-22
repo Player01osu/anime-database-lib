@@ -3,11 +3,11 @@
 
 Libray for [sani-desu](https://github.com/Player01osu/sani-desu)
 
-Uses sqlite to cache:
+Caches:
 - Directories
 - Episodes
 - Current episode of show
-- Sort shows by last watched
+- Last watched shows
 
 ## Quickstart
 
