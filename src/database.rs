@@ -113,6 +113,7 @@ impl Anime {
                     None => self.episodes.push((ep, vec![path])),
                 },
             );
+        self.episodes.sort_by(|(a, _), (b, _)| a.cmp(b));
     }
 
     /// Gets current episode of directory in (season, episode) form.
