@@ -1,9 +1,9 @@
 use crate::episode::Episode;
+use flexbuffers::DeserializationError;
 use std::collections::btree_map::Entry;
 use std::fs::{read_dir, File};
 use std::io::{Read, Write};
 use std::{collections::BTreeMap, path::Path, time::SystemTime};
-use flexbuffers::DeserializationError;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -208,10 +208,9 @@ impl Database {
         let time = get_time();
         anime_directories
             .iter()
+            .filter_map(|s| read_dir(s.as_ref()).ok())
             .flat_map(|s| {
-                read_dir(s.as_ref())
-                    .unwrap()
-                    .filter_map(|v| v.ok())
+                s.filter_map(|v| v.ok())
                     .map(|v| (o_to_str!(v.file_name()), v.path()))
             })
             .for_each(|(name, path)| {
@@ -237,7 +236,10 @@ impl Database {
     }
 
     pub fn animes(&mut self) -> Result<Box<[(&String, &mut Anime)]>> {
-        let mut anime_list = self.anime_map.iter_mut().collect::<Box<[(&String, &mut Anime)]>>();
+        let mut anime_list = self
+            .anime_map
+            .iter_mut()
+            .collect::<Box<[(&String, &mut Anime)]>>();
         anime_list.sort_by(|(_, a), (_, b)| b.last_watched.cmp(&a.last_watched));
 
         Ok(anime_list)
