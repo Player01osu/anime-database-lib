@@ -88,7 +88,7 @@ impl Anime {
         anime
     }
 
-    pub(crate) fn update_episodes(&mut self) {
+    pub fn update_episodes(&mut self) {
         WalkDir::new(&self.path)
             .max_depth(5)
             .min_depth(1)
